@@ -6,7 +6,6 @@ from bank_statement_exporter.model import (
     INCOME,
     MONZO,
     REVOLUT,
-    of_kind,
     sort_transactions,
     transaction,
 )
@@ -38,7 +37,3 @@ def test_amounts_stay_positive_and_kind_carries_the_meaning():
     assert row["amount"] == 12.5 and row["kind"] == EXPENSE
     assert row["category"] == "" and row["trip"] == ""
 
-
-def test_of_kind_filters():
-    rows = [tx(1), tx(2, INCOME), tx(3, BILL)]
-    assert [r["kind"] for r in of_kind(rows, EXPENSE, BILL)] == [EXPENSE, BILL]

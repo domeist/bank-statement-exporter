@@ -31,8 +31,13 @@ def _to_float(value: object) -> float | None:
 
 
 def _parse_date(value: object) -> datetime | None:
+    """Parse the date half of a Revolut timestamp, or None if it is unusable.
+
+    Deliberately naive: a statement row carries a calendar date, not an instant,
+    and the time zone of the original purchase is not in the file.
+    """
     try:
-        return datetime.strptime(str(value)[:10], "%Y-%m-%d")
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d")  # noqa: DTZ007
     except ValueError:
         return None
 

@@ -46,6 +46,3 @@ def sort_transactions(rows: list[dict]) -> list[dict]:
         key=lambda r: (r["date"], _KIND_ORDER.get(r["kind"], 99), _SOURCE_ORDER.get(r["source"], 99)),
     )
 
-
-def of_kind(rows: list[dict], *kinds: str) -> list[dict]:
-    return [row for row in rows if row["kind"] in kinds]

@@ -1,6 +1,8 @@
 """Monzo OAuth and API client."""
 
 import json
+import os
+import stat
 import time
 from datetime import datetime
 from pathlib import Path
@@ -20,11 +22,29 @@ class MonzoSCARequired(Exception):
     """Raised when Monzo requires the user to approve the session in their app."""
 
 
+_PRIVATE_FILE = stat.S_IRUSR | stat.S_IWUSR  # 0o600 — owner only
+_PRIVATE_DIR = stat.S_IRWXU  # 0o700
+
+
 def _ensure_parent(path: str | Path) -> Path:
     """Return *path*, creating its parent directory if needed."""
     p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
+    p.parent.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR)
     return p
+
+
+def _write_private(path: str | Path, text: str) -> None:
+    """Write *text* to *path* so only the owner can read it.
+
+    These files hold a long-lived refresh token and the OAuth state, so they
+    must not be world-readable.
+    """
+    target = _ensure_parent(path)
+    target.write_text(text)
+    try:
+        os.chmod(target, _PRIVATE_FILE)
+    except OSError:  # pragma: no cover - best effort on platforms without POSIX modes
+        pass
 
 
 def get_auth_url(client_id: str, state: str, redirect_uri: str) -> str:
@@ -42,7 +62,7 @@ def _state_path(token_path: str) -> Path:
 
 
 def save_oauth_state(state: str, token_path: str) -> None:
-    _ensure_parent(_state_path(token_path)).write_text(state)
+    _write_private(_state_path(token_path), state)
 
 
 def load_oauth_state(token_path: str) -> str | None:
@@ -55,12 +75,11 @@ def clear_oauth_state(token_path: str) -> None:
 
 
 def save_monzo_token(token_data: dict, path: str) -> None:
-    with _ensure_parent(path).open("w") as fh:
-        json.dump({
-            "access_token": token_data["access_token"],
-            "refresh_token": token_data["refresh_token"],
-            "expires_at": time.time() + token_data.get("expires_in", 0),
-        }, fh)
+    _write_private(path, json.dumps({
+        "access_token": token_data["access_token"],
+        "refresh_token": token_data["refresh_token"],
+        "expires_at": time.time() + token_data.get("expires_in", 0),
+    }))
 
 
 def load_monzo_token(path: str) -> dict | None:

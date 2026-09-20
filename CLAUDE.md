@@ -73,6 +73,17 @@ Do not move this API call outside the button handler.
 Monzo only serves transactions older than 90 days for five minutes after auth; the
 fetch error message says so.
 
+## Session and dates
+
+- `get_accounts()` is cached in `session_state` (`_accounts`): Streamlit reruns
+  the whole script on every widget interaction, so an uncached call hits a
+  rate-limited, SCA-gated endpoint on every keystroke
+- Only a 401/403 clears the Monzo token. A timeout or DNS failure must not,
+  because re-auth costs the user access to transactions older than 90 days
+- Monzo timestamps are UTC; `_created_at` converts to `cfg.timezone`
+  (default `Europe/London`) so late-night BST spending gets the right date
+- Token and OAuth state files are written `0600` via `_write_private`
+
 ## Constraints
 
 - `config.json` and `config/` are gitignored — never commit secrets

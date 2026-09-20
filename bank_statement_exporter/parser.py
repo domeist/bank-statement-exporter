@@ -5,11 +5,12 @@ what the amount means. Dates are real ``date`` objects — formatting for a
 particular output target happens in that target's module.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from .config import DEFAULT_MONZO_CATEGORY_MAP
+from .config import DEFAULT_MONZO_CATEGORY_MAP, DEFAULT_TIMEZONE
 
 MONTH_TABS: dict[int, str] = {
     1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
@@ -45,9 +46,14 @@ def is_filtered_out(t: dict) -> bool:
     )
 
 
-def _created_at(t: dict) -> date:
-    moment = datetime.fromisoformat(t["created"].replace("Z", "+00:00")).astimezone(timezone.utc)
-    return moment.date()
+def _created_at(t: dict, tz: str = DEFAULT_TIMEZONE) -> date:
+    """The calendar date of a transaction in *tz*.
+
+    Monzo timestamps are UTC, so 23:30Z on 30 June is half past midnight on
+    1 July in British Summer Time — the date the spender would recognise.
+    """
+    moment = datetime.fromisoformat(t["created"].replace("Z", "+00:00"))
+    return moment.astimezone(ZoneInfo(tz)).date()
 
 
 def _description(t: dict) -> str:
@@ -58,6 +64,7 @@ def _description(t: dict) -> str:
 def parse_monzo_transactions(
     transactions: list[dict],
     category_map: dict[str, str] | None = None,
+    tz: str = DEFAULT_TIMEZONE,
 ) -> pd.DataFrame:
     """Spending transactions, excluding bills, transfers, pots and incoming money."""
     mapping = DEFAULT_MONZO_CATEGORY_MAP if category_map is None else category_map
@@ -68,7 +75,7 @@ def parse_monzo_transactions(
         if t["amount"] >= 0:  # income/refunds handled separately
             continue
         rows.append({
-            "Date": _created_at(t),
+            "Date": _created_at(t, tz),
             "Amount": round(-t["amount"] / 100, 2),
             "Category": mapping.get(t.get("category", ""), ""),
             "Description": _description(t),
@@ -76,7 +83,7 @@ def parse_monzo_transactions(
     return pd.DataFrame(rows)
 
 
-def parse_income_transactions(transactions: list[dict]) -> pd.DataFrame:
+def parse_income_transactions(transactions: list[dict], tz: str = DEFAULT_TIMEZONE) -> pd.DataFrame:
     """Incoming money, excluding bill refunds (those belong with the bills)."""
     rows = []
     for t in transactions:
@@ -85,14 +92,14 @@ def parse_income_transactions(transactions: list[dict]) -> pd.DataFrame:
         if t["amount"] <= 0:  # only incoming money
             continue
         rows.append({
-            "Date": _created_at(t),
+            "Date": _created_at(t, tz),
             "Amount": round(t["amount"] / 100, 2),
             "Description": _description(t),
         })
     return pd.DataFrame(rows)
 
 
-def parse_bill_transactions(transactions: list[dict]) -> pd.DataFrame:
+def parse_bill_transactions(transactions: list[dict], tz: str = DEFAULT_TIMEZONE) -> pd.DataFrame:
     """Bill payments, kept separate so they are labelled as bills in the export.
 
     A refund appears as a negative amount."""
@@ -101,7 +108,7 @@ def parse_bill_transactions(transactions: list[dict]) -> pd.DataFrame:
         if t.get("category") != MONZO_BILLS_CATEGORY or is_pot_transfer(t) or is_declined(t):
             continue
         rows.append({
-            "Date": _created_at(t),
+            "Date": _created_at(t, tz),
             "Amount": round(-t["amount"] / 100, 2),
             "Description": _description(t),
         })

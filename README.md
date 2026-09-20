@@ -1,5 +1,7 @@
 # Bank Statement Exporter
 
+[![CI](https://github.com/domeist/bank-statement-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/domeist/bank-statement-exporter/actions/workflows/ci.yml)
+
 A Streamlit app that turns **Monzo** and **Revolut** transactions into a tidy spreadsheet — categorised, converted to GBP, and editable before you download it as **Excel** or **CSV**.
 
 No account or API key is needed to try it: upload a Revolut statement and download a clean file.
@@ -63,7 +65,7 @@ Restart the app, click **Connect to Monzo**, approve the notification on your ph
 | Amount | Always positive — `Type` says which direction |
 | Type | `Expense`, `Income` or `Bill` |
 | Source | `Monzo` or `Revolut` |
-| Trip | Optional tag you set per source |
+| Trip | Optional tag you set for expense rows |
 
 ## Configuration
 
@@ -74,6 +76,7 @@ Every key in `config.json` is optional. Paths are resolved from the repo root.
 | `monzo_client_id` / `monzo_client_secret` | — | Enables the Monzo section |
 | `monzo_token_path` | `config/monzo-token.json` | Where the cached Monzo token is kept |
 | `redirect_uri` | `http://localhost:8501/` | Must match the URI registered with Monzo |
+| `timezone` | `Europe/London` | Zone used to date Monzo transactions (their timestamps are UTC) |
 | `categories` | Groceries, Food & Drinks, … | Options in the Category dropdown |
 | `monzo_category_map` | see below | Maps Monzo API categories to your category names |
 
@@ -96,7 +99,10 @@ Default Monzo category mapping:
 ```bash
 pip install -r requirements-dev.txt
 pytest
+ruff check .
 ```
+
+Both run in CI on every push, against Python 3.10 and 3.13.
 
 The suite covers the parsers, the export, config handling, and end-to-end runs of the Streamlit app with the Monzo API stubbed. Nothing touches the network.
 

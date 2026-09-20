@@ -7,6 +7,8 @@
 # Credentials & local config
 config.json
 config/
+*monzo-token*.json
+monzo-oauth-state.txt
 __pycache__/
 *.pyc
 .env
@@ -22,3 +24,5 @@ run.bat
 
 # Testing
 .pytest_cache/
+.coverage
+htmlcov/

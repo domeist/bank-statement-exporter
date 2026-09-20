@@ -9,6 +9,7 @@ import time
 from calendar import monthrange
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 import streamlit as st
@@ -54,7 +55,25 @@ except ConfigError as exc:
 
 def _clear_monzo_token() -> None:
     st.session_state.pop("monzo_token", None)
+    st.session_state.pop("monzo_accounts", None)
     Path(cfg.monzo_token_path).unlink(missing_ok=True)
+
+
+def _accounts(token: str) -> list[dict]:
+    """Monzo accounts, fetched once per session.
+
+    Streamlit reruns the whole script on every widget interaction, so without
+    this the API would be called on every keystroke in the editors.
+    """
+    if "monzo_accounts" not in st.session_state:
+        st.session_state["monzo_accounts"] = get_accounts(token)
+    return st.session_state["monzo_accounts"]
+
+
+def _is_auth_failure(exc: requests.RequestException) -> bool:
+    """True when Monzo rejected the credentials, as opposed to the network failing."""
+    response = getattr(exc, "response", None)
+    return response is not None and response.status_code in (401, 403)
 
 
 def _load_or_refresh_token() -> str | None:
@@ -147,14 +166,19 @@ elif cfg.monzo_enabled:
     access_token: str = st.session_state["monzo_token"]
 
     try:
-        accounts = get_accounts(access_token)
+        accounts = _accounts(access_token)
     except MonzoSCARequired:
         st.session_state["monzo_needs_sca"] = True
         st.rerun()
     except requests.RequestException as exc:
-        st.warning(f"Monzo connection error: {exc}. Clearing token — please reconnect.")
-        _clear_monzo_token()
-        st.rerun()
+        if _is_auth_failure(exc):
+            st.warning("Monzo rejected the saved credentials. Clearing token — please reconnect.")
+            _clear_monzo_token()
+            st.rerun()
+        # A timeout or DNS blip must not cost the user their session: Monzo only
+        # serves transactions older than 90 days for five minutes after auth.
+        st.error(f"Could not reach Monzo: {exc}. The connection is kept — try again in a moment.")
+        st.stop()
 
     retail_accounts = [a for a in accounts if a["type"] == "uk_retail"]
     if not retail_accounts:
@@ -162,16 +186,15 @@ elif cfg.monzo_enabled:
     else:
         account_id: str = retail_accounts[0]["id"]
 
-        now = datetime.now()
+        now = datetime.now(ZoneInfo(cfg.timezone))
         month_names = list(MONTH_TABS.values())
         default_month_index = (now.month - 2) % 12
         default_year = now.year if now.month > 1 else now.year - 1
+        years = list(range(now.year, now.year - 6, -1))
 
         col1, col2 = st.columns(2)
         with col1:
-            selected_year: int = st.selectbox(
-                "Year", [now.year - 1, now.year], index=0 if default_year == now.year - 1 else 1
-            )
+            selected_year: int = st.selectbox("Year", years, index=years.index(default_year))
         with col2:
             selected_month_name: str = st.selectbox("Month", month_names, index=default_month_index)
         selected_month_num: int = month_names.index(selected_month_name) + 1
@@ -185,7 +208,7 @@ elif cfg.monzo_enabled:
                     access_token, account_id, since, before
                 )
             except MonzoSCARequired:
-                _clear_monzo_token()
+                st.session_state["monzo_needs_sca"] = True
                 st.rerun()
             except requests.RequestException as exc:
                 st.error(
@@ -195,9 +218,9 @@ elif cfg.monzo_enabled:
 
         if "monzo_transactions" in st.session_state:
             raw_transactions = st.session_state["monzo_transactions"]
-            df = parse_monzo_transactions(raw_transactions, cfg.monzo_category_map)
-            bills_df = parse_bill_transactions(raw_transactions)
-            income_df = parse_income_transactions(raw_transactions)
+            df = parse_monzo_transactions(raw_transactions, cfg.monzo_category_map, cfg.timezone)
+            bills_df = parse_bill_transactions(raw_transactions, cfg.timezone)
+            income_df = parse_income_transactions(raw_transactions, cfg.timezone)
 
             if df.empty and bills_df.empty and income_df.empty:
                 st.info("No transactions found after filtering.")
@@ -230,7 +253,10 @@ elif cfg.monzo_enabled:
                         categories=cfg.categories,
                         key_prefix="monzo",
                         source=MONZO,
-                        caption="Rows with a blank category are exported as-is — fill them in here if you want them categorised.",
+                        caption=(
+                            "Rows with a blank category are exported as-is — "
+                            "fill them in here if you want them categorised."
+                        ),
                     )
 
                 if not bills_df.empty:
@@ -272,7 +298,9 @@ if uploaded is not None:
     rev_filtered_out = st.session_state["revolut_filtered_out"]
 
     if rev_expenses_df.empty and rev_income_df.empty:
-        st.info("No importable transactions found after filtering.")
+        st.info("Nothing to export from this statement.")
+        # Show why, rather than leaving the user to guess.
+        ui.render_filtered_out(rev_filtered_out)
     else:
         ui.render_summary(
             {"transactions": len(rev_expenses_df), "income": len(rev_income_df)},

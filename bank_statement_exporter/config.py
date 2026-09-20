@@ -16,6 +16,10 @@ _CONFIG_PATH = _REPO_ROOT / "config.json"
 _PLACEHOLDER_MARKERS = ("YOUR_", "/path/to/")
 
 DEFAULT_REDIRECT_URI = "http://localhost:8501/"
+
+# Monzo timestamps are UTC; dates are shown in this zone so a late-night
+# purchase lands on the day you actually made it.
+DEFAULT_TIMEZONE = "Europe/London"
 DEFAULT_MONZO_TOKEN_PATH = "config/monzo-token.json"
 
 DEFAULT_CATEGORIES: list[str] = [
@@ -48,6 +52,8 @@ class Config:
 
     # Must exactly match the redirect URI registered on developers.monzo.com.
     redirect_uri: str = DEFAULT_REDIRECT_URI
+
+    timezone: str = DEFAULT_TIMEZONE
 
     categories: list[str] = field(default_factory=lambda: list(DEFAULT_CATEGORIES))
     monzo_category_map: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MONZO_CATEGORY_MAP))
@@ -94,6 +100,7 @@ def load_config(config_path: Path | None = None) -> Config:
         monzo_client_secret=_clean(data, "monzo_client_secret"),
         monzo_token_path=_resolve(_clean(data, "monzo_token_path") or DEFAULT_MONZO_TOKEN_PATH),
         redirect_uri=_clean(data, "redirect_uri") or DEFAULT_REDIRECT_URI,
+        timezone=_clean(data, "timezone") or DEFAULT_TIMEZONE,
         categories=list(data.get("categories", DEFAULT_CATEGORIES)),
         monzo_category_map=dict(data.get("monzo_category_map", DEFAULT_MONZO_CATEGORY_MAP)),
     )
