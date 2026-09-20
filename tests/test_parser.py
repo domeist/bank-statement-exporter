@@ -1,6 +1,8 @@
 from datetime import date
 
 from monzo_importer.parser import (
+    is_declined,
+    is_filtered_out,
     is_pot_transfer,
     parse_bill_transactions,
     parse_income_transactions,
@@ -63,3 +65,27 @@ def test_pot_transfer_detection():
     assert is_pot_transfer({"description": "pot_00009"})
     assert not is_pot_transfer({"description": "TESCO"})
     assert not is_pot_transfer({})
+
+
+def test_declined_payments_never_count_as_spending():
+    declined = tx(-5000, "eating_out", description="RESTAURANT")
+    declined["decline_reason"] = "INSUFFICIENT_FUNDS"
+    assert parse_monzo_transactions([declined]).empty
+    assert is_declined(declined) and is_filtered_out(declined)
+
+
+def test_a_declined_bill_is_not_recorded_as_paid():
+    declined = tx(-50000, "bills", description="RENT")
+    declined["decline_reason"] = "CARD_BLOCKED"
+    assert parse_bill_transactions([declined]).empty
+
+
+def test_a_declined_credit_is_not_recorded_as_income():
+    declined = tx(200000, "general", description="SALARY")
+    declined["decline_reason"] = "OTHER"
+    assert parse_income_transactions([declined]).empty
+
+
+def test_a_successful_transaction_has_no_decline_reason():
+    assert not is_declined(tx(-500, "groceries"))
+    assert not is_declined({"description": "TESCO", "decline_reason": None})

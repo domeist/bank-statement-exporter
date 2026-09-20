@@ -97,3 +97,55 @@ def test_a_failed_rate_lookup_is_cached_rather_than_retried(monkeypatch):
     assert revolut_parser._fetch_rate("EUR", "2025-03-02") is None
     assert revolut_parser._fetch_rate("EUR", "2025-03-02") is None
     assert len(calls) == 1
+
+
+def test_a_fee_is_added_to_the_cost_of_the_transaction():
+    expenses, _, _ = parse_revolut_csv(
+        csv_of("ATM,Current,2025-03-02 10:00:00,2025-03-02 11:00:00,Cash,-100.00,5.00,GBP,COMPLETED,100")
+    )
+    assert expenses.loc[0, "Amount"] == 105.00
+    assert "5.00 GBP fee" in expenses.loc[0, "Original"]
+
+
+def test_a_fee_is_deducted_from_money_received():
+    _, income, _ = parse_revolut_csv(
+        csv_of("TRANSFER,Current,2025-03-03 10:00:00,2025-03-03 11:00:00,Payment in,50.00,1.50,GBP,COMPLETED,150")
+    )
+    assert income.loc[0, "Amount"] == 48.50
+
+
+def test_a_foreign_fee_is_folded_in_before_conversion(fixed_rate):
+    expenses, _, _ = parse_revolut_csv(
+        csv_of("CARD_PAYMENT,Current,2025-03-02 10:00:00,2025-03-02 11:00:00,Cafe,-10.00,2.50,EUR,COMPLETED,100")
+    )
+    assert expenses.loc[0, "Amount"] == 10.00  # (10.00 + 2.50) * 0.80
+
+
+def test_one_unreadable_date_does_not_cost_the_rest_of_the_statement():
+    expenses, _, filtered = parse_revolut_csv(
+        csv_of(
+            "CARD_PAYMENT,Current,2025-03-02 10:00:00,,Broken row,-9.99,0,GBP,COMPLETED,100",
+            "CARD_PAYMENT,Current,2025-03-03 10:00:00,2025-03-03 11:00:00,Good row,-5.00,0,GBP,COMPLETED,95",
+        )
+    )
+    assert list(expenses["Description"]) == ["Good row"]
+    assert filtered[0]["Reason"] == "unreadable date"
+    assert filtered[0]["Description"] == "Broken row"
+
+
+def test_a_row_with_no_amount_is_reported_not_exported():
+    expenses, income, filtered = parse_revolut_csv(
+        csv_of("CARD_PAYMENT,Current,2025-03-02 10:00:00,2025-03-02 11:00:00,No amount,,0,GBP,COMPLETED,100")
+    )
+    assert expenses.empty and income.empty
+    assert filtered[0]["Reason"] == "no readable amount"
+
+
+def test_skipped_rows_say_why_they_were_skipped():
+    _, _, filtered = parse_revolut_csv(
+        csv_of(
+            "EXCHANGE,Current,2025-03-04 10:00:00,2025-03-04 11:00:00,Exchanged,-20.00,0,GBP,COMPLETED,130",
+            "TRANSFER,Savings,2025-03-05 10:00:00,2025-03-05 11:00:00,Flexible Cash Funds,-10.00,0,GBP,COMPLETED,120",
+        )
+    )
+    assert [f["Reason"] for f in filtered] == ["currency exchange", "internal transfer"]

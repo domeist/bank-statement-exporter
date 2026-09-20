@@ -1,5 +1,6 @@
 """Parsing of Revolut CSV statement exports, with conversion to GBP."""
 
+import math
 from datetime import datetime
 
 import pandas as pd
@@ -18,6 +19,34 @@ RATE_UNAVAILABLE_NOTE = "rate unavailable"
 
 # Module-level cache so exchange rates aren't re-fetched within a session.
 _rate_cache: dict[tuple[str, str], float | None] = {}
+
+
+def _to_float(value: object) -> float | None:
+    """A usable number, or None for blanks, text and NaN/inf."""
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(number) or math.isinf(number) else number
+
+
+def _parse_date(value: object) -> datetime | None:
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _skipped_row(row, reason: str, amount: object = "") -> dict:
+    """A row that will not be exported, described for the user."""
+    return {
+        "Date": str(row["Completed Date"])[:10],
+        "Amount": amount,
+        "Currency": str(row["Currency"]),
+        "Type": str(row["Type"]),
+        "Description": str(row["Description"]),
+        "Reason": reason,
+    }
 
 
 def _is_internal(description: str) -> bool:
@@ -71,6 +100,9 @@ def parse_revolut_csv(file) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
       conversion could not be done.
     * ``EXCHANGE`` transactions and Flexible Cash Funds movements are filtered out.
     * Only ``COMPLETED`` rows are processed.
+    * Fees are added to the amount they were charged on.
+    * A row that cannot be read is reported in ``filtered_out`` with a reason
+      rather than failing the whole statement.
     """
     raw = pd.read_csv(file)
     expenses: list[dict] = []
@@ -80,30 +112,41 @@ def parse_revolut_csv(file) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
     for _, row in raw.iterrows():
         if str(row["State"]) != "COMPLETED":
             continue
-        amount = float(row["Amount"])
-        if amount == 0.0:
-            continue
 
         description = str(row["Description"])
         currency = str(row["Currency"])
         tx_type = str(row["Type"])
-        completed = datetime.strptime(str(row["Completed Date"])[:10], "%Y-%m-%d").date()
 
-        if _is_skipped_type(tx_type) or _is_internal(description):
-            filtered_out.append({
-                "Date": completed.strftime("%d/%m/%Y"),
-                "Amount": amount,
-                "Currency": currency,
-                "Type": tx_type,
-                "Description": description,
-            })
+        amount = _to_float(row["Amount"])
+        if amount is None:
+            filtered_out.append(_skipped_row(row, "no readable amount"))
+            continue
+        if amount == 0.0:
             continue
 
-        gbp_amount, note, converted = _to_gbp(amount, currency, completed.strftime("%Y-%m-%d"))
+        completed = _parse_date(row["Completed Date"])
+        if completed is None:
+            # One bad row must not cost the user the rest of the statement.
+            filtered_out.append(_skipped_row(row, "unreadable date", amount))
+            continue
+        completed_date = completed.date()
 
-        if amount > 0:
+        if _is_skipped_type(tx_type) or _is_internal(description):
+            reason = "currency exchange" if _is_skipped_type(tx_type) else "internal transfer"
+            filtered_out.append(_skipped_row(row, reason, amount))
+            continue
+
+        # Fees are charged on top of the amount, so fold them in before converting.
+        fee = _to_float(row["Fee"]) if "Fee" in raw.columns else None
+        net = round(amount - fee, 2) if fee else amount
+
+        gbp_amount, note, converted = _to_gbp(net, currency, completed.strftime("%Y-%m-%d"))
+        if fee:
+            note = f"{note}, {fee:.2f} {currency} fee" if note else f"incl. {fee:.2f} {currency} fee"
+
+        if net > 0:
             income.append({
-                "Date": completed,
+                "Date": completed_date,
                 "Amount": gbp_amount,
                 "Description": description,
                 "Original": note,
@@ -111,7 +154,7 @@ def parse_revolut_csv(file) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
             })
         else:
             expenses.append({
-                "Date": completed,
+                "Date": completed_date,
                 # Revolut writes expenses as negative; amounts are always kept
                 # positive internally, so flip the sign here.
                 "Amount": round(-gbp_amount, 2),

@@ -43,9 +43,19 @@ and placeholder values from `config.example.json` count as unset. `load_config`
 only raises when `config.json` exists but cannot be read — a missing file is a
 valid setup, and the app must stay fully usable without one.
 
+## Monzo parsing
+
+Monzo's `/transactions` returns declined payments alongside successful ones.
+`is_declined` (a truthy `decline_reason`) must stay in every parse path — no
+money moved, so counting them inflates spending.
+
 ## Revolut CSV parsing
 
 - Only `COMPLETED` rows are processed
+- The `Fee` column is charged on top of `Amount`; the parser folds it in
+  (`amount - fee`) before currency conversion, and notes it in `Original`
+- A row that cannot be read (bad date, missing amount) is reported in
+  `filtered_out` with a `Reason` — never let one bad row abort the statement
 - The `Type` column is upper case (`EXCHANGE`); `REVOLUT_SKIP_TYPES` is compared
   case-insensitively — do not switch it back to an exact match
 - Revolut writes expenses negative; the parser flips them to positive

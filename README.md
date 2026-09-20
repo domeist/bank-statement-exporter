@@ -8,9 +8,10 @@ No account or API key is needed to try it: upload a Revolut statement and downlo
 
 - Parses a Revolut CSV export, or pulls transactions straight from Monzo via OAuth
 - Converts non-GBP amounts using historical ECB rates, keeping the original amount alongside
-- Filters out pot transfers, currency exchanges and internal savings movements
+- Filters out pot transfers, currency exchanges, internal savings movements and declined payments
+- Folds Revolut fees into the amount they were charged on
 - Maps Monzo's categories onto your own, and lets you fix anything in an editable table
-- Labels rows as expense, income or bill
+- Labels rows as expense, income or bill, and says why anything was skipped
 - Merges both sources chronologically and exports to `.xlsx` or `.csv`
 
 ## Quick start

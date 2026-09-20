@@ -31,7 +31,9 @@ from monzo_importer.monzo_api import (
 )
 from monzo_importer.parser import (
     MONTH_TABS,
+    is_declined,
     is_filtered_out,
+    is_pot_transfer,
     parse_bill_transactions,
     parse_income_transactions,
     parse_monzo_transactions,
@@ -206,6 +208,11 @@ elif cfg.monzo_enabled:
                         "Amount": round(-t["amount"] / 100, 2),
                         "Category": t.get("category", ""),
                         "Description": (t.get("merchant") or {}).get("name") or t.get("description", ""),
+                        "Reason": (
+                            f"declined ({t['decline_reason'].lower().replace('_', ' ')})"
+                            if is_declined(t)
+                            else "pot transfer" if is_pot_transfer(t) else "transfer"
+                        ),
                     }
                     for t in raw_transactions
                     if is_filtered_out(t)

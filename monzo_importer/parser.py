@@ -27,9 +27,22 @@ def is_pot_transfer(t: dict) -> bool:
     return t.get("description", "").startswith("pot_")
 
 
+def is_declined(t: dict) -> bool:
+    """True for payments Monzo refused (insufficient funds, blocked card, ...).
+
+    The API returns these alongside successful ones; no money moved, so they
+    must never count as spending.
+    """
+    return bool(t.get("decline_reason"))
+
+
 def is_filtered_out(t: dict) -> bool:
     """True for transactions deliberately excluded from every output."""
-    return t.get("category") in MONZO_API_SKIP_CATEGORIES or is_pot_transfer(t)
+    return (
+        t.get("category") in MONZO_API_SKIP_CATEGORIES
+        or is_pot_transfer(t)
+        or is_declined(t)
+    )
 
 
 def _created_at(t: dict) -> date:
@@ -85,7 +98,7 @@ def parse_bill_transactions(transactions: list[dict]) -> pd.DataFrame:
     A refund appears as a negative amount."""
     rows = []
     for t in transactions:
-        if t.get("category") != MONZO_BILLS_CATEGORY or is_pot_transfer(t):
+        if t.get("category") != MONZO_BILLS_CATEGORY or is_pot_transfer(t) or is_declined(t):
             continue
         rows.append({
             "Date": _created_at(t),
