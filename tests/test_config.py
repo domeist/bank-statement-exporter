@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -17,7 +18,7 @@ def test_with_no_config_the_app_still_has_usable_defaults(tmp_path):
     cfg = load_config(tmp_path / "config.json")
     assert not cfg.monzo_enabled
     assert cfg.redirect_uri == DEFAULT_REDIRECT_URI
-    assert cfg.monzo_token_path.endswith("/config/monzo-token.json")
+    assert Path(cfg.monzo_token_path).parts[-2:] == ("config", "monzo-token.json")
     assert "Groceries" in cfg.categories
 
 
@@ -36,7 +37,7 @@ def test_untouched_example_placeholders_count_as_not_configured(tmp_path):
         "monzo_token_path": "/path/to/token.json",
     }))
     assert not cfg.monzo_enabled
-    assert cfg.monzo_token_path.endswith("/config/monzo-token.json")
+    assert Path(cfg.monzo_token_path).parts[-2:] == ("config", "monzo-token.json")
 
 
 def test_invalid_json_is_reported_clearly(tmp_path):
@@ -55,8 +56,8 @@ def test_a_json_list_is_rejected(tmp_path):
 
 def test_relative_paths_resolve_against_the_repo_root(tmp_path):
     cfg = load_config(write(tmp_path, {**FILLED, "monzo_token_path": "config/mine.json"}))
-    assert cfg.monzo_token_path.startswith("/")
-    assert cfg.monzo_token_path.endswith("/config/mine.json")
+    assert Path(cfg.monzo_token_path).is_absolute()
+    assert Path(cfg.monzo_token_path).parts[-2:] == ("config", "mine.json")
 
 
 def test_categories_and_category_map_can_be_overridden(tmp_path):

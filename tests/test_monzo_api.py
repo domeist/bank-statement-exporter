@@ -1,7 +1,9 @@
 """Tests for the Monzo client: OAuth, token storage and pagination."""
 
 import json
+import os
 import stat
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -80,8 +82,13 @@ def test_saving_a_token_creates_missing_directories(token_path):
     assert load_monzo_token(token_path) is not None
 
 
+# POSIX modes do not exist on Windows, where os.chmod only toggles read-only;
+# those files are protected by the user profile's ACLs instead.
+posix_only = pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+
+
+@posix_only
 def test_the_token_file_is_not_world_readable(token_path):
-    import os
     save_monzo_token({"access_token": "a", "refresh_token": "r", "expires_in": 1}, token_path)
     mode = stat.S_IMODE(os.stat(token_path).st_mode)
     assert mode == 0o600, f"refresh token readable by others: {oct(mode)}"
@@ -116,10 +123,10 @@ def test_clearing_a_state_that_is_not_there_is_harmless(token_path):
     clear_oauth_state(token_path)  # must not raise
 
 
+@posix_only
 def test_the_state_file_is_not_world_readable(token_path):
-    import os
     save_oauth_state("st4te", token_path)
-    path = str(__import__("pathlib").Path(token_path).parent / "monzo-oauth-state.txt")
+    path = str(Path(token_path).parent / "monzo-oauth-state.txt")
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
 
 
