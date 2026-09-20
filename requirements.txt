@@ -1,0 +1,5 @@
+# Upper bounds guard against breaking changes in the next major release.
+streamlit>=1.64,<2.0
+pandas>=2.2,<4.0
+openpyxl>=3.1,<4.0
+requests>=2.31,<3.0

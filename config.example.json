@@ -1,0 +1,6 @@
+{
+  "_comment": "Optional \u2014 only needed to import straight from Monzo.",
+  "monzo_client_id": "YOUR_MONZO_CLIENT_ID",
+  "monzo_client_secret": "YOUR_MONZO_CLIENT_SECRET",
+  "monzo_token_path": "config/monzo-token.json"
+}

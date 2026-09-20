@@ -1,0 +1,24 @@
+# IDE
+.idea/
+
+# Virtual environment
+.venv/
+
+# Credentials & local config
+config.json
+config/
+__pycache__/
+*.pyc
+.env
+
+# Local launcher (machine-specific paths)
+run.bat
+
+# Streamlit
+.streamlit/
+
+# Claude Code
+.claude/
+
+# Testing
+.pytest_cache/
