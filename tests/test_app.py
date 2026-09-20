@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from monzo_importer import config, monzo_api, ui
+from bank_statement_exporter import config, monzo_api, ui
 
 APP_PATH = str(Path(__file__).resolve().parent.parent / "app.py")
 

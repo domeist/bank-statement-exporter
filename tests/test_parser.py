@@ -1,6 +1,6 @@
 from datetime import date
 
-from monzo_importer.parser import (
+from bank_statement_exporter.parser import (
     is_declined,
     is_filtered_out,
     is_pot_transfer,

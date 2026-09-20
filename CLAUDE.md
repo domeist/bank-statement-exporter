@@ -1,15 +1,15 @@
-# monzo-importer
+# bank-statement-exporter
 
 A Streamlit app that turns Monzo and Revolut transactions into a spreadsheet, downloaded as Excel or CSV. Everything is previewed and editable before download.
 
 ## Project structure
 
 ```
-monzo-importer/
+bank-statement-exporter/
 ├── app.py                        # Streamlit page flow — Monzo, Revolut, download
 ├── config.json                   # Local config, all keys optional (gitignored)
 ├── config/                       # Cached Monzo token (gitignored)
-├── monzo_importer/
+├── bank_statement_exporter/
 │   ├── config.py                 # Config loading + defaults
 │   ├── export.py                 # Output: .xlsx / .csv
 │   ├── model.py                  # Canonical transaction shape + ordering

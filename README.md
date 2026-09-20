@@ -1,4 +1,4 @@
-# Monzo Importer
+# Bank Statement Exporter
 
 A Streamlit app that turns **Monzo** and **Revolut** transactions into a tidy spreadsheet — categorised, converted to GBP, and editable before you download it as **Excel** or **CSV**.
 
@@ -17,8 +17,8 @@ No account or API key is needed to try it: upload a Revolut statement and downlo
 ## Quick start
 
 ```bash
-git clone https://github.com/domeist/monzo-importer.git
-cd monzo-importer
+git clone https://github.com/domeist/bank-statement-exporter.git
+cd bank-statement-exporter
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 streamlit run app.py

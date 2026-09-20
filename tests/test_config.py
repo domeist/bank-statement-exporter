@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from monzo_importer.config import DEFAULT_REDIRECT_URI, ConfigError, load_config
+from bank_statement_exporter.config import DEFAULT_REDIRECT_URI, ConfigError, load_config
 
 FILLED = {"monzo_client_id": "oauth2client_x", "monzo_client_secret": "mnzconf_x"}
 

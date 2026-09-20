@@ -3,14 +3,14 @@ from datetime import date
 
 import pandas as pd
 
-from monzo_importer.export import (
+from bank_statement_exporter.export import (
     EXPORT_COLUMNS,
     build_export_frame,
     suggested_filename,
     to_csv_bytes,
     to_excel_bytes,
 )
-from monzo_importer.model import BILL, EXPENSE, INCOME, MONZO, REVOLUT, transaction
+from bank_statement_exporter.model import BILL, EXPENSE, INCOME, MONZO, REVOLUT, transaction
 
 ROWS = [
     transaction(date=date(2025, 3, 4), amount=12.5, description="Tesco",

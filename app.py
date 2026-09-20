@@ -13,10 +13,10 @@ from pathlib import Path
 import requests
 import streamlit as st
 
-from monzo_importer import ui
-from monzo_importer.config import ConfigError, load_config
-from monzo_importer.model import MONZO, REVOLUT, sort_transactions
-from monzo_importer.monzo_api import (
+from bank_statement_exporter import ui
+from bank_statement_exporter.config import ConfigError, load_config
+from bank_statement_exporter.model import MONZO, REVOLUT, sort_transactions
+from bank_statement_exporter.monzo_api import (
     MonzoSCARequired,
     clear_oauth_state,
     exchange_code,
@@ -29,7 +29,7 @@ from monzo_importer.monzo_api import (
     save_monzo_token,
     save_oauth_state,
 )
-from monzo_importer.parser import (
+from bank_statement_exporter.parser import (
     MONTH_TABS,
     is_declined,
     is_filtered_out,
@@ -38,10 +38,10 @@ from monzo_importer.parser import (
     parse_income_transactions,
     parse_monzo_transactions,
 )
-from monzo_importer.revolut_parser import parse_revolut_csv
+from bank_statement_exporter.revolut_parser import parse_revolut_csv
 
-st.set_page_config(page_title="Budget Importer", page_icon="💸")
-st.title("Budget Importer")
+st.set_page_config(page_title="Bank Statement Exporter", page_icon="💸")
+st.title("Bank Statement Exporter")
 
 try:
     cfg = load_config()

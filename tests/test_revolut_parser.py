@@ -3,8 +3,8 @@ from datetime import date
 
 import pytest
 
-from monzo_importer import revolut_parser
-from monzo_importer.revolut_parser import parse_revolut_csv
+from bank_statement_exporter import revolut_parser
+from bank_statement_exporter.revolut_parser import parse_revolut_csv
 
 HEADER = "Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance\n"
 

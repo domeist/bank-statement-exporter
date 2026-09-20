@@ -1,6 +1,6 @@
 from datetime import date
 
-from monzo_importer.model import (
+from bank_statement_exporter.model import (
     BILL,
     EXPENSE,
     INCOME,
