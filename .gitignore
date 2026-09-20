@@ -3,6 +3,8 @@
 
 # Virtual environment
 .venv/
+venv/
+env/
 
 # Credentials & local config
 config.json
@@ -16,8 +18,8 @@ __pycache__/
 # Local launcher (machine-specific paths)
 run.bat
 
-# Streamlit
-.streamlit/
+# Streamlit — config.toml is committed; secrets are not
+.streamlit/secrets.toml
 
 # Claude Code
 .claude/
@@ -26,3 +28,11 @@ run.bat
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Bank statements and exports — never commit real financial data
+*.csv
+*.xlsx
+!tests/**/*.csv
+
+# OS
+.DS_Store

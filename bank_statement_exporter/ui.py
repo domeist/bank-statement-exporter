@@ -6,7 +6,8 @@ import streamlit as st
 from .export import build_export_frame, suggested_filename, to_csv_bytes, to_excel_bytes
 from .model import BILL, EXPENSE, INCOME, transaction
 
-_DATE_COLUMN = st.column_config.DateColumn(label="Date", format="YYYY-MM-DD")
+# required: a blanked date cannot be ordered or exported.
+_DATE_COLUMN = st.column_config.DateColumn(label="Date", format="YYYY-MM-DD", required=True)
 _AMOUNT_COLUMN = st.column_config.NumberColumn(label="Amount", format="£%.2f")
 _ORIGINAL_COLUMN = st.column_config.TextColumn(label="Original", disabled=True)
 
@@ -66,8 +67,9 @@ def render_expense_editor(
         transaction(
             date=row["Date"], amount=row["Amount"], description=row["Description"],
             category=row["Category"], trip=trip_name, kind=EXPENSE, source=source,
+            note=row.get("Original", ""), rate_failed=bool(df.get("Rate Failed", {}).get(index, False)),
         )
-        for _, row in edited.iterrows()
+        for index, row in edited.iterrows()
     ]
 
 
@@ -122,12 +124,13 @@ def _render_simple_editor(
         transaction(
             date=row["Date"], amount=row["Amount"], description=row["Description"],
             category=category, kind=kind, source=source,
+            note=row.get("Original", ""), rate_failed=bool(df.get("Rate Failed", {}).get(index, False)),
         )
-        for _, row in edited.iterrows()
+        for index, row in edited.iterrows()
     ]
 
 
-def render_download_buttons(rows: list[dict]) -> None:
+def render_download_buttons(rows: list[dict], *, disabled: bool = False) -> None:
     """Offer the reviewed transactions as a spreadsheet file."""
     frame = build_export_frame(rows)
     st.caption(f"{len(frame)} row(s) ready to download.")
@@ -139,6 +142,7 @@ def render_download_buttons(rows: list[dict]) -> None:
             file_name=suggested_filename(rows, "xlsx"),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             width="stretch",
+            disabled=disabled,
         )
     with csv:
         st.download_button(
@@ -147,4 +151,5 @@ def render_download_buttons(rows: list[dict]) -> None:
             file_name=suggested_filename(rows, "csv"),
             mime="text/csv",
             width="stretch",
+            disabled=disabled,
         )

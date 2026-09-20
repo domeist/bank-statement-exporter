@@ -1,0 +1,8 @@
+# This app serves your bank transactions, so it listens on the loopback
+# interface only. Change this knowingly.
+[server]
+address = "localhost"
+headless = true
+
+[browser]
+gatherUsageStats = false

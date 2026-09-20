@@ -25,7 +25,7 @@ ROWS = [
 def test_export_columns_are_self_describing():
     frame = build_export_frame(ROWS)
     assert list(frame.columns) == EXPORT_COLUMNS
-    assert EXPORT_COLUMNS == ["Date", "Description", "Category", "Amount", "Type", "Source", "Trip"]
+    assert EXPORT_COLUMNS == ["Date", "Description", "Category", "Amount", "Type", "Source", "Trip", "Note"]
 
 
 def test_every_row_is_exported_with_its_type_and_source():
@@ -68,3 +68,33 @@ def test_filename_spans_a_range_when_the_rows_cross_months():
 
 def test_filename_falls_back_when_there_is_nothing_to_date():
     assert suggested_filename([], "csv") == "transactions.csv"
+
+
+def test_a_conversion_warning_reaches_the_exported_file():
+    rows = [transaction(date=date(2025, 3, 2), amount=250.0, description="Hotel Berlin",
+                        kind=EXPENSE, source=REVOLUT, note="⚠️ EUR -250.00 (rate unavailable)")]
+    assert "rate unavailable" in build_export_frame(rows).loc[0, "Note"]
+
+
+def test_a_formula_in_a_description_cannot_execute_in_a_spreadsheet():
+    # Payment references are chosen by whoever sent the money.
+    payloads = ["=cmd|'/c calc'!A1", "+1+1", "-1+1", "@SUM(A1)", "\tTab", "\rCR"]
+    rows = [transaction(date=date(2025, 3, 2), amount=1.0, description=p,
+                        kind=EXPENSE, source=REVOLUT) for p in payloads]
+    exported = list(build_export_frame(rows)["Description"])
+    assert all(cell.startswith("'") for cell in exported), exported
+
+
+def test_ordinary_descriptions_are_left_alone():
+    rows = [transaction(date=date(2025, 3, 2), amount=1.0, description="Tesco Metro",
+                        kind=EXPENSE, source=REVOLUT)]
+    assert build_export_frame(rows).loc[0, "Description"] == "Tesco Metro"
+
+
+def test_the_formula_guard_also_covers_category_trip_and_note():
+    rows = [transaction(date=date(2025, 3, 2), amount=1.0, description="ok", category="=A1",
+                        trip="=B2", note="=C3", kind=EXPENSE, source=REVOLUT)]
+    frame = build_export_frame(rows)
+    assert frame.loc[0, "Category"].startswith("'")
+    assert frame.loc[0, "Trip"].startswith("'")
+    assert frame.loc[0, "Note"].startswith("'")

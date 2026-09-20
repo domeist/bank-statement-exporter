@@ -61,7 +61,10 @@ money moved, so counting them inflates spending.
 - Revolut writes expenses negative; the parser flips them to positive
 - A failed rate lookup sets `Rate Failed`; app.py surfaces the count and marks
   the row ⚠️ so a foreign amount is never passed off as GBP
-- Rates are cached in `_rate_cache` at module level, including failures
+- Rates are fetched once per currency via `prefetch_rates` (a date-range
+  request), not once per row; `_rate_for` falls back to a single-date lookup
+- Failures are cached only for `RATE_RETRY_SECONDS`, so one blip is not
+  permanent for the life of the process
 
 ## SCA (Monzo Secure Customer Authentication)
 
@@ -73,6 +76,16 @@ Do not move this API call outside the button handler.
 Monzo only serves transactions older than 90 days for five minutes after auth; the
 fetch error message says so.
 
+## Output safety
+
+- `export._safe_text` prefixes `= + - @ tab CR` with `'`: descriptions come from
+  an uploaded statement and payment references are attacker-chosen, so an
+  unescaped cell is a formula the spreadsheet will offer to execute
+- A row whose FX conversion failed keeps `rate_failed`; `app.py` disables the
+  download until the user confirms they corrected it, and the `Note` column
+  carries the warning into the file. Never let a foreign amount sit unmarked in
+  the Amount column
+
 ## Session and dates
 
 - `get_accounts()` is cached in `session_state` (`_accounts`): Streamlit reruns
@@ -82,6 +95,13 @@ fetch error message says so.
   because re-auth costs the user access to transactions older than 90 days
 - Monzo timestamps are UTC; `_created_at` converts to `cfg.timezone`
   (default `Europe/London`) so late-night BST spending gets the right date
+- `parser.month_window` builds the fetch window in that same zone and converts
+  to UTC. Both ends must use one zone: a UTC window with London dates pulls in
+  the next month's first hour and drops this month's last
+- Fetched transactions are stored with the `(year, month)` they were fetched
+  for, and dropped on failure — stale rows under a new heading are silently
+  wrong output
+- `ZoneInfo` needs `tzdata` on Windows; it is a hard dependency for that reason
 - Token and OAuth state files are written `0600` via `_write_private`
 
 ## Constraints

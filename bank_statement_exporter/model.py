@@ -28,6 +28,8 @@ def transaction(
     source: str,
     category: str = "",
     trip: str = "",
+    note: str = "",
+    rate_failed: bool = False,
 ) -> dict:
     return {
         "date": date,
@@ -37,7 +39,15 @@ def transaction(
         "source": source,
         "category": category,
         "trip": trip,
+        # Original currency/fee detail, and whether the conversion to GBP failed.
+        "note": note,
+        "rate_failed": rate_failed,
     }
+
+
+def has_usable_date(row: dict) -> bool:
+    """True when the row can be ordered and exported — editors allow blanking a date."""
+    return isinstance(row.get("date"), date_type)
 
 
 def sort_transactions(rows: list[dict]) -> list[dict]:

@@ -7,30 +7,45 @@ import pandas as pd
 
 from .model import BILL, EXPENSE, INCOME
 
-EXPORT_COLUMNS = ["Date", "Description", "Category", "Amount", "Type", "Source", "Trip"]
+EXPORT_COLUMNS = ["Date", "Description", "Category", "Amount", "Type", "Source", "Trip", "Note"]
 
 _TYPE_LABELS = {EXPENSE: "Expense", INCOME: "Income", BILL: "Bill"}
 
 _SHEET_NAME = "Transactions"
 _COLUMN_WIDTHS = {"Date": 12, "Description": 38, "Category": 18, "Amount": 12,
-                  "Type": 10, "Source": 10, "Trip": 14}
+                  "Type": 10, "Source": 10, "Trip": 14, "Note": 28}
+
+# A leading one of these makes a spreadsheet treat the cell as a formula.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe_text(value: object) -> str:
+    """Text that a spreadsheet will not execute.
+
+    Descriptions come from an uploaded statement, and payment references are
+    chosen by whoever sent the money, so ``=cmd|'/c calc'!A1`` can reach this.
+    """
+    text = "" if value is None else str(value)
+    return f"'{text}" if text.startswith(_FORMULA_PREFIXES) else text
 
 
 def build_export_frame(rows: list[dict]) -> pd.DataFrame:
     """Tidy, self-describing table of transactions.
 
-    Amounts stay positive; the Type column says whether a row is money out or in.
+    Amounts stay positive; the Type column says whether a row is money out or in,
+    and Note carries the original currency, any fee, and conversion warnings.
     """
     return pd.DataFrame(
         [
             {
                 "Date": row["date"],
-                "Description": row["description"],
-                "Category": row["category"],
+                "Description": _safe_text(row["description"]),
+                "Category": _safe_text(row["category"]),
                 "Amount": row["amount"],
                 "Type": _TYPE_LABELS.get(row["kind"], row["kind"].title()),
                 "Source": row["source"],
-                "Trip": row["trip"],
+                "Trip": _safe_text(row["trip"]),
+                "Note": _safe_text(row.get("note", "")),
             }
             for row in rows
         ],

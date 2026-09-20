@@ -5,7 +5,7 @@ what the amount means. Dates are real ``date`` objects — formatting for a
 particular output target happens in that target's module.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -25,7 +25,8 @@ MONZO_BILLS_CATEGORY = "bills"
 
 
 def is_pot_transfer(t: dict) -> bool:
-    return t.get("description", "").startswith("pot_")
+    # A present-but-null description is valid JSON from Monzo, hence `or ""`.
+    return (t.get("description") or "").startswith("pot_")
 
 
 def is_declined(t: dict) -> bool:
@@ -58,7 +59,22 @@ def _created_at(t: dict, tz: str = DEFAULT_TIMEZONE) -> date:
 
 def _description(t: dict) -> str:
     merchant = t.get("merchant") or {}
-    return merchant.get("name") or t.get("description", "")
+    return merchant.get("name") or t.get("description") or ""
+
+
+def month_window(year: int, month: int, tz: str = DEFAULT_TIMEZONE) -> tuple[datetime, datetime]:
+    """UTC bounds of a calendar month *as lived in* ``tz``.
+
+    The API works in UTC but the user picks a month in their own zone, so during
+    British Summer Time a naive UTC window would pull in the first hour of the
+    next month and miss the last hour of this one.
+
+    Returns ``(since, before)`` where *before* is exclusive.
+    """
+    zone = ZoneInfo(tz)
+    start = datetime(year, month, 1, tzinfo=zone)
+    end = datetime(year + (month == 12), month % 12 + 1, 1, tzinfo=zone)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
 
 
 def parse_monzo_transactions(

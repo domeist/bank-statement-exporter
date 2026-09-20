@@ -1,9 +1,10 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 from bank_statement_exporter.parser import (
     is_declined,
     is_filtered_out,
     is_pot_transfer,
+    month_window,
     parse_bill_transactions,
     parse_income_transactions,
     parse_monzo_transactions,
@@ -89,3 +90,28 @@ def test_a_declined_credit_is_not_recorded_as_income():
 def test_a_successful_transaction_has_no_decline_reason():
     assert not is_declined(tx(-500, "groceries"))
     assert not is_declined({"description": "TESCO", "decline_reason": None})
+
+
+def test_the_month_window_covers_the_month_as_lived_in_the_local_zone():
+    since, before = month_window(2025, 3, "Europe/London")
+    # 1 March 00:00 London is 00:00 UTC; 1 April 00:00 BST is 31 March 23:00 UTC.
+    assert since.strftime("%Y-%m-%dT%H:%M") == "2025-03-01T00:00"
+    assert before.strftime("%Y-%m-%dT%H:%M") == "2025-03-31T23:00"
+
+
+def test_a_late_night_purchase_is_fetched_by_the_month_it_belongs_to():
+    created = datetime(2025, 3, 31, 23, 30, tzinfo=timezone.utc)  # 00:30 on 1 April, BST
+    march_since, march_before = month_window(2025, 3, "Europe/London")
+    april_since, april_before = month_window(2025, 4, "Europe/London")
+    assert not (march_since <= created < march_before)
+    assert april_since <= created < april_before
+
+
+def test_the_window_wraps_the_year():
+    since, before = month_window(2025, 12, "Europe/London")
+    assert since.year == 2025 and before.year == 2026
+
+
+def test_utc_can_still_be_requested():
+    since, before = month_window(2025, 3, "UTC")
+    assert before.strftime("%Y-%m-%dT%H:%M") == "2025-04-01T00:00"

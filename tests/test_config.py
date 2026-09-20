@@ -65,3 +65,27 @@ def test_categories_and_category_map_can_be_overridden(tmp_path):
     }))
     assert cfg.categories == ["", "Fun"]
     assert cfg.monzo_category_map == {"eating_out": "Fun"}
+
+
+def test_a_nonsense_timezone_is_rejected_with_a_helpful_message(tmp_path):
+    with pytest.raises(ConfigError, match="not a known timezone"):
+        load_config(write(tmp_path, {**FILLED, "timezone": "Not/AZone"}))
+
+
+def test_a_real_timezone_is_accepted(tmp_path):
+    assert load_config(write(tmp_path, {**FILLED, "timezone": "UTC"})).timezone == "UTC"
+
+
+def test_categories_given_as_a_string_are_rejected_not_split_into_letters(tmp_path):
+    with pytest.raises(ConfigError, match="must be a list"):
+        load_config(write(tmp_path, {**FILLED, "categories": "Groceries"}))
+
+
+def test_categories_given_as_a_number_are_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="must be a list"):
+        load_config(write(tmp_path, {**FILLED, "categories": 5}))
+
+
+def test_a_category_map_that_is_not_a_mapping_is_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="must be an object"):
+        load_config(write(tmp_path, {**FILLED, "monzo_category_map": ["a", "b"]}))

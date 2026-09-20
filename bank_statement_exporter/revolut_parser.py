@@ -1,6 +1,7 @@
 """Parsing of Revolut CSV statement exports, with conversion to GBP."""
 
 import math
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -14,11 +15,16 @@ REVOLUT_SKIP_TYPES: set[str] = {"exchange"}
 # Descriptions marking Revolut-internal movements (savings pots and similar).
 REVOLUT_INTERNAL_DESCRIPTIONS: tuple[str, ...] = ("Flexible Cash Funds",)
 
-RATE_API_URL = "https://api.frankfurter.app"
+# api.frankfurter.app now 301-redirects here; point at the current host directly.
+RATE_API_URL = "https://api.frankfurter.dev/v1"
 RATE_UNAVAILABLE_NOTE = "rate unavailable"
+RATE_TIMEOUT = 10
+# A failed lookup is retried after this long, so one blip is not permanent.
+RATE_RETRY_SECONDS = 60
 
-# Module-level cache so exchange rates aren't re-fetched within a session.
-_rate_cache: dict[tuple[str, str], float | None] = {}
+# Module-level caches so exchange rates aren't re-fetched within a session.
+_rate_cache: dict[tuple[str, str], float] = {}
+_rate_failures: dict[tuple[str, str], float] = {}
 
 
 def _to_float(value: object) -> float | None:
@@ -64,19 +70,78 @@ def _is_skipped_type(tx_type: str) -> bool:
 
 
 def _fetch_rate(currency: str, date_str: str) -> float | None:
+    """The GBP rate for one date, or None if it cannot be fetched."""
+    try:
+        resp = requests.get(
+            f"{RATE_API_URL}/{date_str}",
+            params={"from": currency, "to": "GBP"},
+            timeout=RATE_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return float(resp.json()["rates"]["GBP"])
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return None
+
+
+def _fetch_range(currency: str, start: str, end: str) -> dict[str, float] | None:
+    """Every published GBP rate between two dates, in one request."""
+    try:
+        resp = requests.get(
+            f"{RATE_API_URL}/{start}..{end}",
+            params={"from": currency, "to": "GBP"},
+            timeout=RATE_TIMEOUT,
+        )
+        resp.raise_for_status()
+        series = resp.json()["rates"]
+        return {day: float(rates["GBP"]) for day, rates in series.items()}
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return None
+
+
+def _nearest_published(series: dict[str, float], date_str: str) -> float | None:
+    """The rate for *date_str*, or the most recent one before it.
+
+    Rates are not published at weekends or on holidays, which is what the
+    single-date endpoint does for us server-side.
+    """
+    if date_str in series:
+        return series[date_str]
+    earlier = [day for day in series if day <= date_str]
+    return series[max(earlier)] if earlier else None
+
+
+def prefetch_rates(currency: str, dates: set[str]) -> None:
+    """Fill the cache for one currency in a single request.
+
+    Without this, a month of foreign spending means one blocking HTTP call per
+    day, serially.
+    """
+    wanted = {d for d in dates if (d, currency) not in _rate_cache}
+    if currency == "GBP" or not wanted:
+        return
+    series = _fetch_range(currency, min(wanted), max(wanted))
+    if not series:
+        return
+    for day in wanted:
+        rate = _nearest_published(series, day)
+        if rate is not None:
+            _rate_cache[(day, currency)] = rate
+
+
+def _rate_for(currency: str, date_str: str) -> float | None:
     key = (date_str, currency)
-    if key not in _rate_cache:
-        try:
-            resp = requests.get(
-                f"{RATE_API_URL}/{date_str}",
-                params={"from": currency, "to": "GBP"},
-                timeout=5,
-            )
-            resp.raise_for_status()
-            _rate_cache[key] = float(resp.json()["rates"]["GBP"])
-        except (requests.RequestException, ValueError, KeyError, TypeError):
-            _rate_cache[key] = None
-    return _rate_cache[key]
+    if key in _rate_cache:
+        return _rate_cache[key]
+    failed_at = _rate_failures.get(key)
+    if failed_at is not None and time.monotonic() - failed_at < RATE_RETRY_SECONDS:
+        return None  # recently unavailable; don't hammer the API for every row
+    rate = _fetch_rate(currency, date_str)
+    if rate is None:
+        _rate_failures[key] = time.monotonic()
+        return None
+    _rate_cache[key] = rate
+    _rate_failures.pop(key, None)
+    return rate
 
 
 def _to_gbp(amount: float, currency: str, date_str: str) -> tuple[float, str, bool]:
@@ -89,7 +154,7 @@ def _to_gbp(amount: float, currency: str, date_str: str) -> tuple[float, str, bo
     """
     if currency == "GBP":
         return amount, "", True
-    rate = _fetch_rate(currency, date_str)
+    rate = _rate_for(currency, date_str)
     if rate is None:
         return amount, f"⚠️ {currency} {amount:+.2f} ({RATE_UNAVAILABLE_NOTE})", False
     return round(amount * rate, 2), f"{currency} {amount:+.2f}", True
@@ -114,6 +179,7 @@ def parse_revolut_csv(file) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
     income: list[dict] = []
     filtered_out: list[dict] = []
 
+    pending: list[dict] = []
     for _, row in raw.iterrows():
         if str(row["State"]) != "COMPLETED":
             continue
@@ -134,7 +200,6 @@ def parse_revolut_csv(file) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
             # One bad row must not cost the user the rest of the statement.
             filtered_out.append(_skipped_row(row, "unreadable date", amount))
             continue
-        completed_date = completed.date()
 
         if _is_skipped_type(tx_type) or _is_internal(description):
             reason = "currency exchange" if _is_skipped_type(tx_type) else "internal transfer"
@@ -144,27 +209,50 @@ def parse_revolut_csv(file) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
         # Fees are charged on top of the amount, so fold them in before converting.
         fee = _to_float(row["Fee"]) if "Fee" in raw.columns else None
         net = round(amount - fee, 2) if fee else amount
+        if net == 0.0:  # a fee that exactly cancels the amount
+            continue
 
-        gbp_amount, note, converted = _to_gbp(net, currency, completed.strftime("%Y-%m-%d"))
+        pending.append({
+            "date": completed.date(),
+            "date_str": completed.strftime("%Y-%m-%d"),
+            "description": description,
+            "currency": currency,
+            "net": net,
+            "fee": fee,
+        })
+
+    # One request per foreign currency, rather than one per row.
+    by_currency: dict[str, set[str]] = {}
+    for item in pending:
+        if item["currency"] != "GBP":
+            by_currency.setdefault(item["currency"], set()).add(item["date_str"])
+    for currency, dates in by_currency.items():
+        prefetch_rates(currency, dates)
+
+    for item in pending:
+        net, currency, fee = item["net"], item["currency"], item["fee"]
+        gbp_amount, note, converted = _to_gbp(net, currency, item["date_str"])
         if fee:
-            note = f"{note}, {fee:.2f} {currency} fee" if note else f"incl. {fee:.2f} {currency} fee"
+            charged = "incl." if net < 0 else "less"
+            fee_note = f"{charged} {abs(fee):.2f} {currency} fee"
+            note = f"{note}, {fee_note}" if note else fee_note
 
         if net > 0:
             income.append({
-                "Date": completed_date,
+                "Date": item["date"],
                 "Amount": gbp_amount,
-                "Description": description,
+                "Description": item["description"],
                 "Original": note,
                 "Rate Failed": not converted,
             })
         else:
             expenses.append({
-                "Date": completed_date,
+                "Date": item["date"],
                 # Revolut writes expenses as negative; amounts are always kept
                 # positive internally, so flip the sign here.
                 "Amount": round(-gbp_amount, 2),
                 "Category": "",
-                "Description": description,
+                "Description": item["description"],
                 "Original": note,
                 "Rate Failed": not converted,
             })

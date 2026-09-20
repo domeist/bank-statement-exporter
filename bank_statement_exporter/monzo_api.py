@@ -22,6 +22,10 @@ class MonzoSCARequired(Exception):
     """Raised when Monzo requires the user to approve the session in their app."""
 
 
+class MonzoTokenError(Exception):
+    """Raised when Monzo's token response cannot be used."""
+
+
 _PRIVATE_FILE = stat.S_IRUSR | stat.S_IWUSR  # 0o600 — owner only
 _PRIVATE_DIR = stat.S_IRWXU  # 0o700
 
@@ -75,6 +79,15 @@ def clear_oauth_state(token_path: str) -> None:
 
 
 def save_monzo_token(token_data: dict, path: str) -> None:
+    if not token_data.get("access_token"):
+        raise MonzoTokenError("Monzo did not return an access token.")
+    if not token_data.get("refresh_token"):
+        # Only Confidential clients get refresh tokens; without one the session
+        # would die minutes later with no way to renew it.
+        raise MonzoTokenError(
+            "Monzo did not return a refresh token. On developers.monzo.com the client "
+            "must be of type 'Confidential' — recreate it and update config.json."
+        )
     _write_private(path, json.dumps({
         "access_token": token_data["access_token"],
         "refresh_token": token_data["refresh_token"],
@@ -91,7 +104,11 @@ def load_monzo_token(path: str) -> dict | None:
             token = json.load(fh)
     except (json.JSONDecodeError, OSError):
         return None
-    if not {"access_token", "refresh_token", "expires_at"} <= token.keys():
+    if not isinstance(token, dict):
+        return None
+    if not all(isinstance(token.get(key), str) for key in ("access_token", "refresh_token")):
+        return None
+    if not isinstance(token.get("expires_at"), (int, float)) or isinstance(token.get("expires_at"), bool):
         return None
     return token
 

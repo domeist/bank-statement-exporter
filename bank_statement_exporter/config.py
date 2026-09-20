@@ -8,6 +8,7 @@ straight from Monzo.
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _REPO_ROOT = Path(__file__).parent.parent
 _CONFIG_PATH = _REPO_ROOT / "config.json"
@@ -64,6 +65,36 @@ class Config:
         return bool(self.monzo_client_id and self.monzo_client_secret)
 
 
+def _str_list(data: dict, key: str, default: list[str]) -> list[str]:
+    value = data.get(key, default)
+    if isinstance(value, str) or not isinstance(value, (list, tuple)):
+        raise ConfigError(f"config.json: '{key}' must be a list of names.")
+    return [str(item) for item in value]
+
+
+def _str_map(data: dict, key: str, default: dict[str, str]) -> dict[str, str]:
+    value = data.get(key, default)
+    if not isinstance(value, dict):
+        raise ConfigError(f"config.json: '{key}' must be an object mapping names to names.")
+    return {str(k): str(v) for k, v in value.items()}
+
+
+def _timezone(data: dict) -> str:
+    name = _clean(data, "timezone") or DEFAULT_TIMEZONE
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ConfigError(
+            f"config.json: '{name}' is not a known timezone. Use an IANA name such as "
+            f"'{DEFAULT_TIMEZONE}'."
+        ) from exc
+    except OSError as exc:  # no system tz database and tzdata not installed
+        raise ConfigError(
+            f"Time zone data is unavailable ({exc}). Install it with: pip install tzdata"
+        ) from exc
+    return name
+
+
 def _clean(data: dict, key: str) -> str:
     """A configured string value, or "" if absent or still an example placeholder."""
     value = str(data.get(key, "") or "").strip()
@@ -100,7 +131,7 @@ def load_config(config_path: Path | None = None) -> Config:
         monzo_client_secret=_clean(data, "monzo_client_secret"),
         monzo_token_path=_resolve(_clean(data, "monzo_token_path") or DEFAULT_MONZO_TOKEN_PATH),
         redirect_uri=_clean(data, "redirect_uri") or DEFAULT_REDIRECT_URI,
-        timezone=_clean(data, "timezone") or DEFAULT_TIMEZONE,
-        categories=list(data.get("categories", DEFAULT_CATEGORIES)),
-        monzo_category_map=dict(data.get("monzo_category_map", DEFAULT_MONZO_CATEGORY_MAP)),
+        timezone=_timezone(data),
+        categories=_str_list(data, "categories", DEFAULT_CATEGORIES),
+        monzo_category_map=_str_map(data, "monzo_category_map", DEFAULT_MONZO_CATEGORY_MAP),
     )

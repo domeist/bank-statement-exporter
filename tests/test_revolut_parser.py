@@ -14,11 +14,15 @@ def csv_of(*rows: str):
 
 
 @pytest.fixture(autouse=True)
-def clear_rate_cache():
-    """Keep the module-level rate cache from leaking between tests."""
+def no_network(monkeypatch):
+    """Keep the module-level caches clean and every HTTP call out of the tests."""
     revolut_parser._rate_cache.clear()
+    revolut_parser._rate_failures.clear()
+    monkeypatch.setattr(revolut_parser, "_fetch_range", lambda *a, **k: None)
+    monkeypatch.setattr(revolut_parser, "_fetch_rate", lambda *a, **k: None)
     yield
     revolut_parser._rate_cache.clear()
+    revolut_parser._rate_failures.clear()
 
 
 @pytest.fixture
@@ -77,8 +81,7 @@ def test_income_row_is_positive():
     assert income.loc[0, "Description"] == "Top-Up"
 
 
-def test_failed_conversion_is_flagged_rather_than_silently_written(monkeypatch):
-    monkeypatch.setattr(revolut_parser, "_fetch_rate", lambda currency, date_str: None)
+def test_failed_conversion_is_flagged_rather_than_silently_written():
     expenses, _, _ = parse_revolut_csv(
         csv_of("CARD_PAYMENT,Current,2025-03-02 10:00:00,2025-03-02 11:00:00,Cafe,-10.00,0,EUR,COMPLETED,100")
     )
@@ -86,17 +89,67 @@ def test_failed_conversion_is_flagged_rather_than_silently_written(monkeypatch):
     assert "rate unavailable" in expenses.loc[0, "Original"]
 
 
-def test_a_failed_rate_lookup_is_cached_rather_than_retried(monkeypatch):
+def test_a_failed_lookup_is_not_retried_for_every_row(monkeypatch):
     calls = []
-
-    def fake_get(url, params, timeout):
-        calls.append(url)
-        raise revolut_parser.requests.RequestException("offline")
-
-    monkeypatch.setattr(revolut_parser.requests, "get", fake_get)
-    assert revolut_parser._fetch_rate("EUR", "2025-03-02") is None
-    assert revolut_parser._fetch_rate("EUR", "2025-03-02") is None
+    monkeypatch.setattr(revolut_parser, "_fetch_rate",
+                        lambda c, d: calls.append((c, d)) or None)
+    assert revolut_parser._rate_for("EUR", "2025-03-02") is None
+    assert revolut_parser._rate_for("EUR", "2025-03-02") is None
     assert len(calls) == 1
+
+
+def test_a_failed_lookup_is_retried_once_the_backoff_passes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(revolut_parser, "_fetch_rate",
+                        lambda c, d: calls.append((c, d)) or None)
+    assert revolut_parser._rate_for("EUR", "2025-03-02") is None
+    # A transient outage must not poison the rate for the life of the process.
+    monkeypatch.setattr(revolut_parser, "RATE_RETRY_SECONDS", 0)
+    revolut_parser._rate_for("EUR", "2025-03-02")
+    assert len(calls) == 2
+
+
+def test_rates_are_fetched_once_per_currency_not_once_per_row(monkeypatch):
+    ranges = []
+
+    def fake_range(currency, start, end):
+        ranges.append((currency, start, end))
+        return {"2025-03-03": 0.80}
+
+    monkeypatch.setattr(revolut_parser, "_fetch_range", fake_range)
+    monkeypatch.setattr(revolut_parser, "_fetch_rate",
+                        lambda *a: pytest.fail("should not fall back to per-date lookups"))
+    rows = [
+        f"CARD_PAYMENT,Current,2025-03-{d:02d} 10:00:00,2025-03-{d:02d} 11:00:00,Shop,-10.00,0,EUR,COMPLETED,1"
+        for d in range(3, 9)
+    ]
+    expenses, _, _ = parse_revolut_csv(csv_of(*rows))
+    assert len(expenses) == 6
+    assert ranges == [("EUR", "2025-03-03", "2025-03-08")]
+
+
+def test_a_date_with_no_published_rate_uses_the_previous_one(monkeypatch):
+    # Rates are not published at weekends.
+    monkeypatch.setattr(revolut_parser, "_fetch_range", lambda *a: {"2025-03-07": 0.50})
+    monkeypatch.setattr(revolut_parser, "_fetch_rate", lambda *a: pytest.fail("no fallback expected"))
+    expenses, _, _ = parse_revolut_csv(
+        csv_of("CARD_PAYMENT,Current,2025-03-09 10:00:00,2025-03-09 11:00:00,Sunday,-10.00,0,EUR,COMPLETED,1")
+    )
+    assert expenses.loc[0, "Amount"] == 5.00
+
+
+def test_a_fee_that_swallows_the_whole_credit_is_not_exported_as_minus_zero():
+    expenses, income, _ = parse_revolut_csv(
+        csv_of("TOPUP,Current,2025-03-02 10:00:00,2025-03-02 11:00:00,All fee,0.50,0.50,GBP,COMPLETED,1")
+    )
+    assert expenses.empty and income.empty
+
+
+def test_a_fee_adds_to_an_expense_rather_than_cancelling_it():
+    expenses, _, _ = parse_revolut_csv(
+        csv_of("CARD_PAYMENT,Current,2025-03-02 10:00:00,2025-03-02 11:00:00,Cash,-0.50,0.50,GBP,COMPLETED,1")
+    )
+    assert expenses.loc[0, "Amount"] == 1.00
 
 
 def test_a_fee_is_added_to_the_cost_of_the_transaction():

@@ -30,6 +30,8 @@ Export a monthly CSV from the Revolut app (*Accounts → Statement → CSV*), up
 
 **Requires Python 3.10+.**
 
+The app binds to `localhost` only (see `.streamlit/config.toml`) — it serves your bank transactions and has no login of its own, so don't expose the port. If port 8501 is busy Streamlit picks another one; the Monzo redirect below assumes 8501, so close whatever is using it first.
+
 ## Optional: import from Monzo
 
 Connecting to Monzo pulls a whole month of transactions directly, with no CSV in the middle.
@@ -49,7 +51,9 @@ cp config.example.json config.json
 }
 ```
 
-Restart the app, click **Connect to Monzo**, approve the notification on your phone, then pick a month and fetch. The token is cached in `config/`, so you only do this once per session.
+Restart the app, click **Connect to Monzo**, approve the notification on your phone, then pick a month and fetch. The token is cached in `config/` (owner-readable only) and refreshed automatically, so you stay connected between runs.
+
+Months are fetched according to your `timezone` setting, so a purchase just before midnight is counted in the month you made it, not the UTC one.
 
 **Monzo only serves transactions older than 90 days for five minutes after you authenticate.** To import an older month, reconnect and fetch straight away.
 
@@ -66,6 +70,7 @@ Restart the app, click **Connect to Monzo**, approve the notification on your ph
 | Type | `Expense`, `Income` or `Bill` |
 | Source | `Monzo` or `Revolut` |
 | Trip | Optional tag you set for expense rows |
+| Note | Original currency, any fee, and a ⚠️ if the conversion failed |
 
 ## Configuration
 
@@ -102,7 +107,7 @@ pytest
 ruff check .
 ```
 
-Both run in CI on every push, against Python 3.10 and 3.13.
+Both run in CI on every push, against Python 3.10 and 3.13 on Linux and 3.13 on Windows.
 
 The suite covers the parsers, the export, config handling, and end-to-end runs of the Streamlit app with the Monzo API stubbed. Nothing touches the network.
 

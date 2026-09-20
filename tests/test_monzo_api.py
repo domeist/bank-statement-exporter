@@ -11,6 +11,7 @@ from bank_statement_exporter import monzo_api
 from bank_statement_exporter.monzo_api import (
     PAGE_SIZE,
     MonzoSCARequired,
+    MonzoTokenError,
     clear_oauth_state,
     exchange_code,
     get_accounts,
@@ -254,3 +255,26 @@ def test_a_rejected_refresh_raises(monkeypatch):
     monkeypatch.setattr(monzo_api.requests, "post", lambda *a, **k: FakeResponse(401, {}))
     with pytest.raises(requests.HTTPError):
         refresh_monzo_token("id", "secret", "stale")
+
+
+def test_a_client_that_returns_no_refresh_token_is_rejected_with_advice(token_path):
+    # Monzo only issues refresh tokens to Confidential clients.
+    with pytest.raises(MonzoTokenError, match="Confidential"):
+        save_monzo_token({"access_token": "a", "expires_in": 3600}, token_path)
+
+
+def test_a_response_with_no_access_token_is_rejected(token_path):
+    with pytest.raises(MonzoTokenError, match="access token"):
+        save_monzo_token({"refresh_token": "r"}, token_path)
+
+
+def test_a_token_with_a_wrong_typed_expiry_is_ignored(tmp_path):
+    path = tmp_path / "monzo-token.json"
+    path.write_text(json.dumps({"access_token": "a", "refresh_token": "r", "expires_at": "soon"}))
+    assert load_monzo_token(str(path)) is None
+
+
+def test_a_token_that_is_not_an_object_is_ignored(tmp_path):
+    path = tmp_path / "monzo-token.json"
+    path.write_text("[1, 2, 3]")
+    assert load_monzo_token(str(path)) is None

@@ -7,12 +7,16 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # The floor the README promises, plus the current release.
-        python-version: ["3.10", "3.13"]
+        include:
+          # The floor the README promises, the current release, and Windows,
+          # which has no system time zone database.
+          - { os: ubuntu-latest, python-version: "3.10" }
+          - { os: ubuntu-latest, python-version: "3.13" }
+          - { os: windows-latest, python-version: "3.13" }
 
     steps:
       - uses: actions/checkout@v4
